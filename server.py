@@ -1,8 +1,9 @@
 import requests
-import pprint
 import json
 from six.moves.urllib.parse import urlparse, parse_qs
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import asyncio
+from aiohttp import ClientSession
 
 
 BASE_GET_URL = "https://postman-echo.com/get?x={}"
@@ -11,7 +12,6 @@ INVALID_ITERATION_ERROR = {'message': 'invalid iterations for /count', 'response
 
 
 def get_iterations_from_query_string(url, counting_var):
-    # TODO pretty print this?
     path = urlparse(url)
     query_string = parse_qs(path.query)
     if not query_string:
@@ -25,15 +25,19 @@ def get_iterations_from_query_string(url, counting_var):
 
 
 def lookup_route(url, valid_routes):
-    # TODO pretty print this?
     path = urlparse(url)
     return path.path in valid_routes
 
-
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+
     def write_json(self, content):
         # TODO doc
         self.wfile.write(json.dumps(content, indent=2).encode())
+
+    def write_bytes(self, content):
+        # TODO doc
+        formated_json = json.dumps(json.loads(content.decode('utf8').replace("'", '"')),indent=2)
+        self.wfile.write(formated_json.encode())
 
     def _set_headers(self):
         # TODO doc
@@ -42,7 +46,8 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_HEAD(self):
-        # TODO doc or remove
+        # TODO doc
+        # TODO remove?
         self._set_headers()
 
     def do_GET(self):
@@ -60,14 +65,22 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             self.write_json(INVALID_ITERATION_ERROR)
             return
 
-        results = []
+        loop = asyncio.get_event_loop()
+        tasks = []
+
+        async def async_get(url):
+            async with ClientSession() as session:
+                async with session.get(url) as response:
+                    r = await response.read()
+                    self.write_bytes(r)
+
         for i in range(0, iterations):
             get_value = i + 1
-            get_url = BASE_GET_URL.format(get_value)
-            r = requests.get(url = get_url)
-            r = r.json()
-            results.append(r)
-            self.write_json(r)
+            GET_url = BASE_GET_URL.format(get_value)
+            task = asyncio.ensure_future(async_get(GET_url))
+            tasks.append(task)
+
+        loop.run_until_complete(asyncio.wait(tasks))
 
 
 def run(server_class=HTTPServer, handler_class=SimpleHTTPRequestHandler, port=8080):
@@ -85,25 +98,5 @@ def run(server_class=HTTPServer, handler_class=SimpleHTTPRequestHandler, port=80
 if __name__ == "__main__":
     run()
 
-# httpd = socketserver.TCPServer(("", PORT), SimpleHTTPRequestHandler)
-
-
 # TODO should I host this somewhere? Digital Ocean would be easiest?
 # TODO set notabs in vim
-
-        # out = """
-        # <!DOCTYPE html>
-            # <html>
-              # <head>
-                # <title>POSTMAN Echo</title>
-              # </head>
-                  # <body>
-                    # <h1>Hey there.</h1>
-                    # <p>"%(path)s"</p>
-              # </body>
-            # </html> """ % {
-                # 'path': urlparse(self.path),
-                # }
-        # self.wfile.write(out.encode('utf-8'))
-
-
