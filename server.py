@@ -1,4 +1,3 @@
-import requests
 import json
 from six.moves.urllib.parse import urlparse, parse_qs
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -31,28 +30,36 @@ def lookup_route(url, valid_routes):
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def write_json(self, content):
-        # TODO doc
+        """
+        Output JSON to client
+        Args:
+            content: Python object to be json encoded
+        """
         self.wfile.write(json.dumps(content, indent=2).encode())
 
     def write_bytes(self, content):
-        # TODO doc
+        """
+        bytes to be written to client
+        Args:
+            content: Python bytes object
+        """
         formated_json = json.dumps(json.loads(content.decode('utf8').replace("'", '"')),indent=2)
         self.wfile.write(formated_json.encode())
 
     def _set_headers(self):
-        # TODO doc
+        """
+        Set the headers of our response
+        """
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.end_headers()
 
-    def do_HEAD(self):
-        # TODO doc
-        # TODO remove?
-        self._set_headers()
-
     def do_GET(self):
-        # TODO doc
-        # send_response and end_headers needed to make this a valid, successful response
+        """
+        Called on GET
+        Complete as many requests to postman echo as specified by query params. Post aggregated responses to client.
+        Checks that route is valid and handles errors
+        """
         self._set_headers()
 
         is_valid_route = lookup_route(self.path, valid_routes=['/count'])
@@ -84,7 +91,13 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
 
 def run(server_class=HTTPServer, handler_class=SimpleHTTPRequestHandler, port=8080):
-    # TODO doc
+    """
+    Run the server until escape sequence is read
+    Args:
+        server_class: Our HTTPServer
+        handler_class: The request handler with our GET method
+        port: Port to serve. Default 8080
+    """
     server_address = ('', port)
     httpd = server_class(server_address, handler_class)
     try:
@@ -95,8 +108,6 @@ def run(server_class=HTTPServer, handler_class=SimpleHTTPRequestHandler, port=80
         pass
     httpd.server_close()
 
+
 if __name__ == "__main__":
     run()
-
-# TODO should I host this somewhere? Digital Ocean would be easiest?
-# TODO set notabs in vim
