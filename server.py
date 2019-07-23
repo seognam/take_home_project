@@ -1,60 +1,132 @@
-import time
+import functools
+from collections import deque
 import json
-from six.moves.urllib.parse import urlparse, parse_qs
-from http.server import HTTPServer, BaseHTTPRequestHandler
 import asyncio
-from aiohttp import web
-from aiohttp import ClientSession
-
+from aiohttp import web, ClientSession
 
 BASE_GET_URL = "https://postman-echo.com/get?x={}"
-INVALID_API_ERROR = {'message': 'invalid API endpoint', 'response': 'error'}
-INVALID_ITERATION_ERROR = {'message': 'invalid iterations for /count', 'response': 'error'}
-
 
 class Server:
+    """
+    A python HTTP server using asyncio and aiohttp.
+
+    The only valid route is /count.
+    GET requests are processed in the background, prioritizing speed.
+    """
     def __init__(self):
         self.loop = asyncio.get_event_loop()
+        self.counter = 0
+        self.queue = deque([])
+        self.tasks = []
+        self.responses = []
+
+    async def reset(self, request):
+        """
+        An HTTP endpoint that resets the counter incremented by `/count`
+        Args:
+            request: The HTTP request object
+        """
+        self.counter = 0
+        self.queue = deque([])
+        self.tasks = []
+        self.responses = []
+        return web.json_response({'success': True, 'message': 'Reset counter.'})
 
     async def count(self, request):
-        iterations = int(request.query['x'])
-        # return web.Response(text=json.dumps(res))
+        """
+        An HTTP endpoint that makes an API call (to postman-echo.com) each time it is called
+        Args:
+            request: The HTTP request object
+        """
+        self.counter += 1
+        self.queue.append(self.counter)
+        return web.json_response(self.responses, dumps=functools.partial(json.dumps, indent=4))
 
-        tasks = []
+    async def async_get(self, session, counter):
+        """
+        Create an asyncronous GET request which will be added to self.tasks
 
-        # TODO add try/except e.g. https://tutorialedge.net/python/create-rest-api-python-aiohttp/#post-requests-and-query-parameters
+        Args:
+            session: The interface for making HTTP requests
+            counter: The counter for our next API request
+        """
+        GET_url = BASE_GET_URL.format(counter)
+        try:
+            async with session.get(GET_url) as response:
+                r = await response.read()
+                # Decode bytes into JSON
+                r = json.loads(r.decode('utf8').replace("'", '"'))
+                self.responses.append(r)
+        except Exception as e:
+                self.responses.append({'status': 'failed', 'reason': str(e)})
+
+    async def background_start_GET_requests(self):
+        """
+        A background task to "fire off" GET requests as they come in
+        
+        Creates tasks from async_get coroutines and adds them to a list of pending tasks.
+        Yields control back to the event loop for other background tasks when the queue is empty.
+        """
         async with ClientSession() as session:
-            for i in range(0, iterations):
-                get_value = i + 1
-                GET_url = BASE_GET_URL.format(get_value)
-                task = asyncio.ensure_future(self.async_get(session, GET_url))
-                tasks.append(task)
-                responses = await asyncio.gather(*tasks)
+            while True:
+                if self.queue:
+                    next_counter = self.queue.popleft()
+                    task = asyncio.ensure_future(self.async_get(session, next_counter))
+                    self.tasks.append(task)
+                else:
+                    # We have no more items in the queue to create tasks from, so yield control back to the event loop
+                    # Blocking for a half second (to let requests accumulate) shows slight speed gains 
+                    # over shorter or longer times for CPU tradeoff.
+                    await asyncio.sleep(0.5)
 
-        return web.json_response(responses)
+    async def background_finish_GET_requests(self):
+        """
+        Finishes all pending GET requests
+        """
+        while True:
+            if self.tasks:
+                # The queue is empty, so background_start_GET_requests yielded control to complete GET requests
+                self.loop.run_until_complete(asyncio.wait(self.tasks))
+            else:
+                # We have no more tasks to complete, so yield control back to the event loop
+                await asyncio.sleep(0.01)
 
-    async def async_get(self, session, url):
-        async with session.get(url) as response:
-            resp = response.text()
-            print(resp)
-            return await(resp)
-    
+    async def start_background_tasks(self, app):
+        """ 
+        Start background tasks
+
+        From https://docs.aiohttp.org/en/stable/web_advanced.html#background-tasks
+        """
+        app['dispatch'] = app.loop.create_task(self.background_start_GET_requests())
+        app['dispatch_get'] = app.loop.create_task(self.background_finish_GET_requests())
+
+    async def cleanup_background_tasks(self, app):
+        """ 
+        Cleanup background tasks
+
+        From https://docs.aiohttp.org/en/stable/web_advanced.html#background-tasks
+        """
+        app['dispatch'].cancel()
+        app['dispatch_get'].cancel()
+        await app['dispatch']
+        await app['dispatch_get']
+
     async def create_app(self):
         app = web.Application()
         app.router.add_get('/count', self.count)
+        app.router.add_get('/reset', self.reset)
         return app
 
-
     def run(self):
+        """
+        Start and run our application, adding background tasks
+        """
         loop = self.loop
         app = loop.run_until_complete(self.create_app())
+        app.on_startup.append(self.start_background_tasks)
+        app.on_cleanup.append(self.cleanup_background_tasks)
         web.run_app(app)
 
 if __name__ == "__main__":
     server = Server()
     server.run()
-
-# TODO asyncio.run_in_executor(json.dums)
-
-# TODO should I host this somewhere? Digital Ocean would be easiest?
-# TODO set notabs in vim

@@ -1,8 +1,41 @@
 # Take Home Project
 
-## Hosted online at <TBD>
+## Hosted online at (TBD)
 
-## Instructions
+## Accessing The Server Online
+- I have hosted this API service on DigitalOcean at `http://165.22.160.147:8080`
+- I created a `/reset` endpoint to reset the counter to 0
+
+#### Example with 100 calls on slow network:
+
+```
+$ time (for i in {1..100}; do curl --header "Content-Type: application/json" http://165.22.160.147:8080/count; done)
+...
+done  0.52s user 0.57s system 5% cpu 19.883 total
+```
+
+## Running the Server Offline
+
+NOTE: You will need `python 3.6+` (for asyncio), and `aiohttp`
+
+1. Clone this repo
+1. Run the server: 
+    
+    `$ python3 server.py`
+
+1. Navigate to the `/count` route on localhost:
+
+    `http://localhost:8080/count`
+
+
+#### Example with 100 calls on localhost:
+```
+$ time (for i in {1..100}; do curl --header "Content-Type: application/json" http://localhost:8080/count; done)
+...
+0.45s user 0.53s system 51% cpu 1.898 total
+```
+
+## Assignment
 
 Postman Echo is a service you can use to test your REST clients and make sample API calls. It provides endpoints for GET, POST, PUT, various auth mechanisms and other utility endpoints.
 The documentation for the endpoints as well as example responses can be found at https://postman-echo.com
